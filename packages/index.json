@@ -1,0 +1,5 @@
+{"extensions":[
+ {"name":"announcement-bar","description":"Dismissible announcement banner at the top of the panel","files":["ext.css","ext.js"]},
+ {"name":"footer-brand","description":"Small 'Theme by Sarthak34' credit","files":["ext.css","ext.js"]},
+ {"name":"console-glow","description":"Soft violet glow around the server console","files":["ext.css"]}
+]}

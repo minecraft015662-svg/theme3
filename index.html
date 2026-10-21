@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sarthak34 license generator</title>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0d1020;--edge:#2a3160;--v:#8f7bff;--r:#ff7eb6;--t:#e8eaff;--m:#9aa1c9}
+*{box-sizing:border-box}body{margin:0;font-family:Manrope,system-ui,sans-serif;background:var(--ink);color:var(--t);
+background-image:radial-gradient(800px 460px at 10% -10%,rgba(143,123,255,.22),transparent 60%)}
+main{max-width:900px;margin:0 auto;padding:28px 18px}h1{margin:0 0 6px;font-size:28px}h2{font-size:17px;margin:0 0 10px}
+p,li{color:var(--m);line-height:1.6}.card{background:rgba(27,33,66,.75);border:1px solid var(--edge);border-radius:12px;padding:20px;margin:18px 0}
+label{display:block;font-size:13px;color:var(--m);margin:10px 0 4px}input,select,textarea{width:100%;padding:10px;border-radius:8px;border:1px solid var(--edge);background:#10142a;color:var(--t);font:inherit}
+textarea{font-family:'JetBrains Mono',monospace;font-size:12px;min-height:110px}input:focus,select:focus,textarea:focus{outline:2px solid var(--v)}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+button{background:var(--v);color:#10102a;border:0;border-radius:8px;padding:10px 16px;font:inherit;font-weight:700;cursor:pointer;margin:12px 8px 0 0}
+button.ghost{background:transparent;color:var(--t);border:1px solid var(--edge);padding:5px 10px;font-size:12px;margin:0}
+code,.out{font-family:'JetBrains Mono',monospace;word-break:break-all}.out{display:block;background:#10142a;border:1px solid var(--edge);border-radius:8px;padding:10px;font-size:12px;margin-top:8px;white-space:pre-wrap}
+.bad{color:var(--r)}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--edge)}.wrap{overflow-x:auto}
+</style></head><body><main>
+<h1>Sarthak34 license generator</h1>
+<p>Everything runs inside your browser. Your private key is never uploaded or stored anywhere.</p>
+
+<div class="card"><h2>Step 1: one-time setup</h2>
+<p>Click once, then save both outputs. Losing the private key means you cannot create licenses any more. Creating a new pair makes all old licenses invalid.</p>
+<button id="gen">Generate keys</button>
+<div id="keys" hidden>
+<label>Public key: save it as <code>pubkey.pem</code> in your GitHub repo</label><span class="out" id="pub"></span>
+<label>Private key: save it in a safe private file, never put it on GitHub</label><span class="out" id="priv"></span>
+<button class="ghost" id="dlpriv">Download private key file</button>
+</div></div>
+
+<div class="card"><h2>Step 2: create a license</h2>
+<label>Private key (paste the whole block)</label><textarea id="pk" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+<div class="row">
+<div><label>Customer email</label><input id="email" type="email" required></div>
+<div><label>Panel domain (e.g. panel.example.com, or * for any)</label><input id="domain" value="*"></div>
+<div><label>Plan</label><select id="plan"><option>standard</option><option>pro</option></select></div>
+<div><label>Valid days (0 = lifetime)</label><input id="days" type="number" min="0" value="0"></div></div>
+<button id="mk">Generate license</button><span id="err" class="bad"></span>
+<div id="res" hidden><label>License key (send this to the customer)</label><span class="out" id="lic"></span>
+<button class="ghost" id="cp">Copy key</button></div></div>
+
+<div class="card wrap"><h2>Licenses made in this browser</h2><p>Only a local note for you. It cannot revoke anything.</p>
+<table><thead><tr><th>Email</th><th>Domain</th><th>Plan</th><th>Expires</th><th></th></tr></thead><tbody id="log"></tbody></table></div>
+</main>
+<script>
+//<core>
+const te=new TextEncoder();
+const ALG={name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'};
+const b64=(buf)=>{let s='';new Uint8Array(buf).forEach(c=>s+=String.fromCharCode(c));return btoa(s)};
+const b64u=(buf)=>b64(buf).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const toPem=(buf,label)=>`-----BEGIN ${label}-----\n${b64(buf).match(/.{1,64}/g).join('\n')}\n-----END ${label}-----\n`;
+const fromPem=(pem)=>Uint8Array.from(atob(pem.replace(/-----[^-]+-----/g,'').replace(/\s+/g,'')),c=>c.charCodeAt(0));
+async function genKeys(){
+  const k=await crypto.subtle.generateKey({...ALG,modulusLength:2048,publicExponent:new Uint8Array([1,0,1])},true,['sign','verify']);
+  return {priv:toPem(await crypto.subtle.exportKey('pkcs8',k.privateKey),'PRIVATE KEY'),
+          pub:toPem(await crypto.subtle.exportKey('spki',k.publicKey),'PUBLIC KEY')};
+}
+async function makeLicense(privPem,o){
+  const key=await crypto.subtle.importKey('pkcs8',fromPem(privPem),ALG,false,['sign']);
+  const now=Math.floor(Date.now()/1000);
+  const dom=(o.domain||'*').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/[\/:].*$/,'')||'*';
+  const payload=JSON.stringify({e:o.email.trim().toLowerCase(),d:dom,p:o.plan,x:o.days>0?now+o.days*86400:0,i:now});
+  const data=te.encode(payload);
+  const sig=await crypto.subtle.sign('RSASSA-PKCS1-v1_5',key,data);
+  return {key:'S34.'+b64u(data)+'.'+b64u(sig),payload:JSON.parse(payload)};
+}
+//</core>
+if(typeof document!=='undefined'){
+const $=id=>document.getElementById(id);
+$('gen').onclick=async()=>{
+  if(!crypto.subtle){alert('Open this page over https (your github.io link).');return}
+  const k=await genKeys();$('pub').textContent=k.pub;$('priv').textContent=k.priv;$('keys').hidden=false;$('pk').value=k.priv;
+};
+$('dlpriv').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([$('priv').textContent]));a.download='sarthak34-private-key.pem';a.click()};
+const LOG='s34log';
+const getLog=()=>{try{return JSON.parse(localStorage.getItem(LOG)||'[]')}catch(e){return[]}};
+function draw(){const rows=getLog();const tb=$('log');tb.textContent='';
+  if(!rows.length){tb.innerHTML='<tr><td colspan="5">Nothing yet.</td></tr>';return}
+  rows.forEach((r,i)=>{const tr=document.createElement('tr');
+    [r.e,r.d,r.p,r.x?new Date(r.x*1000).toLocaleDateString():'lifetime'].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.appendChild(td)});
+    const td=document.createElement('td');const b=document.createElement('button');b.className='ghost';b.textContent='Remove note';
+    b.onclick=()=>{const l=getLog();l.splice(i,1);localStorage.setItem(LOG,JSON.stringify(l));draw()};td.appendChild(b);tr.appendChild(td);tb.appendChild(tr)});}
+$('mk').onclick=async()=>{
+  $('err').textContent='';
+  try{
+    const email=$('email').value;if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))throw new Error('Enter a valid email');
+    const r=await makeLicense($('pk').value,{email,domain:$('domain').value,plan:$('plan').value,days:parseInt($('days').value||'0',10)});
+    $('lic').textContent=r.key;$('res').hidden=false;
+    const l=getLog();l.unshift(r.payload);localStorage.setItem(LOG,JSON.stringify(l.slice(0,200)));draw();
+  }catch(e){$('err').textContent=' '+(e.message||'Could not sign. Check the private key.')}
+};
+$('cp').onclick=()=>navigator.clipboard.writeText($('lic').textContent);
+draw();
+}
+</script></body></html>
